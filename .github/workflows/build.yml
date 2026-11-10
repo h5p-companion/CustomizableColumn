@@ -11,15 +11,31 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: ctezlifrn/h5p-cli:latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Build package
-        run: npx h5p pack src H5P.CustomizableColumn-1.0.h5p
+        shell: pwsh
+        run: |
+          $source = (Resolve-Path -LiteralPath src).Path
+          $manifest = Get-Content -Raw -LiteralPath (Join-Path $source 'library.json') | ConvertFrom-Json
+          $folder = "$($manifest.machineName)-$($manifest.majorVersion).$($manifest.minorVersion)"
+          $package = Join-Path (Get-Location).Path 'H5P.CustomizableColumn-1.0.h5p'
+          $files = Get-ChildItem -LiteralPath $source -Recurse -File |
+            Where-Object { $_.Extension -in '.json', '.js', '.css', '.svg' }
+
+          # H5P validates file extensions even for explicit ZIP directory entries.
+          $zip = [System.IO.Compression.ZipFile]::Open($package, [System.IO.Compression.ZipArchiveMode]::Create)
+          try {
+            foreach ($file in $files) {
+              $relative = [System.IO.Path]::GetRelativePath($source, $file.FullName).Replace('\', '/')
+              $null = [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $file.FullName, "$folder/$relative")
+            }
+          } finally {
+            $zip.Dispose()
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
